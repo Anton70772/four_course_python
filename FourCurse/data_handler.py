@@ -27,6 +27,20 @@ def get_patients():
         return result
     return []
 
+def get_user_data(username):
+    connection = connect_to_db()
+    if connection:
+        query = "SELECT * FROM users WHERE Username = %s"
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(query, (username,))
+        result = cursor.fetchone()
+        cursor.close()
+        connection.close()
+        return result if result else {}
+    return {}
+
+
+
 def insert_patient(data):
     connection = connect_to_db()
     if connection:
