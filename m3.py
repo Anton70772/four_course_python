@@ -1,212 +1,141 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-import mysql.connector
-import tkinter.font as tkfont
+import mysql.connector as mysql
+import tkinter.font
 
-db = mysql.connector.connect(host="localhost", user="root", password="234565", database="exam")
-cursor = db.cursor()
+db = mysql.connect(host="localhost", user="root", password="234565", database="exam")
+cur = db.cursor()
 
 root = tk.Tk()
 root.title("Данные продуктов")
 root.geometry("1000x500")
+tk.font.nametofont("TkDefaultFont").configure(family="Candara", size=10)
 
-default_font = tkfont.nametofont("TkDefaultFont")
-default_font.configure(family="Candara", size=10)
-
-columns = (
-"Тип", "Наименование продукта", "Артикул", "Минимальная стоимость", "Основной материал", "Время изготовления")
-
-tree = ttk.Treeview(root, columns=columns, show='headings')
-for col in columns:
-    tree.heading(col, text=col)
-    tree.column(col, width=150)
+cols = ("Тип", "Наименование продукта", "Артикул", "Минимальная стоимость", "Основной материал", "Время изготовления")
+tree = ttk.Treeview(root, columns=cols, show='headings')
+for c in cols:
+    tree.heading(c, text=c)
+    tree.column(c, width=150)
 tree.pack(fill=tk.BOTH, expand=True)
 
-def get_list(query):
-    cursor.execute(query)
-    return [row[0] for row in cursor.fetchall()]
+def fetch(q, params=(), one=False):
+    cur.execute(q, params)
+    return (cur.fetchone() if one else cur.fetchall())
 
-def get_id_by_name(table, name_field, name_value):
-    cursor.execute(f"SELECT id FROM {table} WHERE {name_field}=%s", (name_value,))
-    res = cursor.fetchone()
+def get_id(table, field, value):
+    res = fetch(f"SELECT id FROM {table} WHERE {field}=%s", (value,), one=True)
     return res[0] if res else None
 
-def get_product_id_by_article(article):
-    cursor.execute("SELECT id FROM products WHERE article_number=%s", (article,))
-    return cursor.fetchone()
-
 def load_data():
-    query = """
-        SELECT 
-            product_types.product_type,
-            products.product_name,
-            products.article_number,
-            products.min_partner_price,
-            materials.material_type,
-            product_workshop_details.production_time
-        FROM products
-        JOIN product_types ON products.product_type_id = product_types.id
-        JOIN materials ON products.material_id = materials.id
-        JOIN product_workshop_details ON products.id = product_workshop_details.product_id
-        JOIN product_workshops ON product_workshop_details.workshop_id = product_workshops.id
-    """
-    cursor.execute(query)
-    rows = cursor.fetchall()
-    for item in tree.get_children():
-        tree.delete(item)
-    for row in rows:
+    tree.delete(*tree.get_children())
+    query = """SELECT pt.product_type, p.product_name, p.article_number, p.min_partner_price,
+               m.material_type, pwd.production_time FROM products p
+               JOIN product_types pt ON p.product_type_id = pt.id
+               JOIN materials m ON p.material_id = m.id
+               JOIN product_workshop_details pwd ON p.id = pwd.product_id"""
+    for row in fetch(query):
         tree.insert('', tk.END, values=row)
 
-def get_selected():
-    selected = tree.focus()
-    if not selected:
+def selected():
+    if not (item := tree.focus()):
         messagebox.showwarning("Внимание", "Выберите запись")
-        return None
-    return tree.item(selected)['values']
+        return
+    return tree.item(item)['values']
 
-def get_workshop_id():
-    cursor.execute("SELECT id FROM product_workshops LIMIT 1")
-    return cursor.fetchone()[0]
-
-def create_form_window(mode='add', product_id=None):
+def form_window(mode, current_pid=None):
     form = tk.Toplevel(root)
     form.title("Добавить продукт" if mode == 'add' else "Редактировать продукт")
-    form.geometry("400x300")
     form.grab_set()
 
     fields = [
-        {'label': 'Артикул', 'name': 'article', 'type': 'entry'},
-        {'label': 'Тип продукта', 'name': 'product_type', 'type': 'combobox',
-         'query': "SELECT product_type FROM product_types"},
-        {'label': 'Наименование', 'name': 'name', 'type': 'entry'},
-        {'label': 'Минимальная стоимость', 'name': 'price', 'type': 'entry'},
-        {'label': 'Основной материал', 'name': 'material', 'type': 'entry'},
+        ('Артикул', 'article', 'entry'),
+        ('Тип продукта', 'type', 'combo', "SELECT product_type FROM product_types"),
+        ('Наименование', 'name', 'entry'),
+        ('Минимальная стоимость', 'price', 'entry'),
+        ('Основной материал', 'material', 'entry')
     ]
 
-    vars = {}
-    for i, field in enumerate(fields):
-        ttk.Label(form, text=field['label']).grid(row=i, column=0, sticky=tk.W, pady=5, padx=5)
-        if field['type'] == 'entry':
-            entry = ttk.Entry(form)
-            entry.grid(row=i, column=1, pady=5, padx=5)
-            vars[field['name']] = entry
-        elif field['type'] == 'combobox':
+    entries = {}
+    for r, (lbl, name, typ, *q) in enumerate(fields):
+        tk.Label(form, text=lbl).grid(row=r, column=0, sticky=tk.W, padx=5, pady=5)
+        if typ == 'combo':
             cb = ttk.Combobox(form, state='readonly')
-            cb['values'] = get_list(field['query'])
-            cb.grid(row=i, column=1, pady=5, padx=5)
-            vars[field['name']] = cb
+            cb['values'] = [x[0] for x in fetch(q[0])]
+            cb.grid(row=r, column=1, padx=5, pady=5)
+            entries[name] = cb
+        else:
+            e = ttk.Entry(form)
+            e.grid(row=r, column=1, padx=5, pady=5)
+            entries[name] = e
 
-    def load_product_data():
-        cursor.execute(
+    if mode == 'edit':
+        p = fetch(
             "SELECT article_number, product_name, min_partner_price, material_id, product_type_id FROM products WHERE id=%s",
-            (product_id,))
-        prod = cursor.fetchone()
-        if not prod:
+            (current_pid,), one=True)
+        if not p:
             messagebox.showerror("Ошибка", "Продукт не найден")
             form.destroy()
             return
-        article, name, price, material_id, type_id = prod
-        vars['article'].delete(0, tk.END)
-        vars['article'].insert(0, article)
-        vars['name'].delete(0, tk.END)
-        vars['name'].insert(0, name)
-        vars['price'].delete(0, tk.END)
-        vars['price'].insert(0, str(price))
+        entries['article'].insert(0, p[0])
+        entries['name'].insert(0, p[1])
+        entries['price'].insert(0, p[2])
+        entries['type'].set(fetch("SELECT product_type FROM product_types WHERE id=%s", (p[4],), one=True)[0])
+        entries['material'].insert(0, fetch("SELECT material_type FROM materials WHERE id=%s", (p[3],), one=True)[0])
 
-        cursor.execute("SELECT product_type FROM product_types WHERE id=%s", (type_id,))
-        vars['product_type'].set(cursor.fetchone()[0])
-
-        cursor.execute("SELECT material_type FROM materials WHERE id=%s", (material_id,))
-        material_name = cursor.fetchone()[0]
-        vars['material'].delete(0, tk.END)
-        vars['material'].insert(0, material_name)
-
-    def save_data():
-        data = {}
-        for field in fields:
-            val = vars[field['name']].get()
-            data[field['name']] = val
-        if not all(data.values()):
+    def save():
+        vals = {n: w.get() for n, w in entries.items()}
+        if not all(vals.values()):
             messagebox.showwarning("Внимание", "Заполните все поля")
-            form.lift()
             return
         try:
-            price = float(data['price'])
+            price = float(vals['price'])
         except:
-            messagebox.showwarning("Внимание", "Некорректная цена")
+            messagebox.showwarning("Ошибка", "Некорректная цена")
             return
 
-        type_id = get_id_by_name('product_types', 'product_type', data['product_type'])
-
-        material_name = data['material'].strip()
-        cursor.execute("SELECT id FROM materials WHERE material_type = %s", (material_name,))
-        existing = cursor.fetchone()
-        if existing:
-            material_id = existing[0]
-        else:
-            cursor.execute("INSERT INTO materials (material_type) VALUES (%s)", (material_name,))
+        type_id = get_id('product_types', 'product_type', vals['type'])
+        material = vals['material'].strip()
+        mat_id = get_id('materials', 'material_type', material)
+        if not mat_id:
+            cur.execute("INSERT INTO materials (material_type) VALUES (%s)", (material,))
+            mat_id = cur.lastrowid
             db.commit()
-            material_id = cursor.lastrowid
 
+        data = (vals['article'], vals['name'], price, mat_id, type_id)
         if mode == 'add':
-            cursor.execute(
+            cur.execute(
                 "INSERT INTO products (article_number, product_name, min_partner_price, material_id, product_type_id) VALUES (%s,%s,%s,%s,%s)",
-                (data['article'], data['name'], price, material_id, type_id)
-            )
-            db.commit()
-            cursor.execute("SELECT LAST_INSERT_ID()")
-            new_id = cursor.fetchone()[0]
-            cursor.execute(
-                "INSERT INTO product_workshop_details (product_id, workshop_id, production_time) VALUES (%s, %s, %s)",
-                (new_id, get_workshop_id(), 0)
-            )
-            db.commit()
+                data)
+            pid = cur.lastrowid
+            cur.execute(
+                "INSERT INTO product_workshop_details (product_id, workshop_id, production_time) VALUES (%s, (SELECT id FROM product_workshops LIMIT 1), 0)",
+                (pid,))
         else:
-            cursor.execute(
-                "UPDATE products SET product_name=%s, min_partner_price=%s, material_id=%s, product_type_id=%s WHERE id=%s",
-                (data['name'], price, material_id, type_id, product_id))
-            cursor.execute("UPDATE product_workshop_details SET production_time=%s WHERE product_id=%s",
-                           (0, product_id))
-            db.commit()
-
+            cur.execute(
+                "UPDATE products SET article_number=%s, product_name=%s, min_partner_price=%s, material_id=%s, product_type_id=%s WHERE id=%s",
+                (*data, current_pid))
+        db.commit()
         load_data()
         form.destroy()
 
-    if mode == 'edit' and product_id:
-        load_product_data()
+    tk.Button(form, text="Сохранить", command=save).grid(row=5, column=0, pady=10)
+    tk.Button(form, text="Назад", command=form.destroy).grid(row=5, column=1, pady=10)
 
-    ttk.Button(form, text="Сохранить", command=save_data).grid(row=len(fields), column=0, pady=10)
-    ttk.Button(form, text="Назад", command=form.destroy).grid(row=len(fields), column=1, pady=10)
-
-def open_add():
-    create_form_window(mode='add')
-
-def open_edit():
-    selected = get_selected()
-    if selected:
-        product_id = get_product_id_by_article(selected[2])
-        if product_id:
-            create_form_window(mode='edit', product_id=product_id[0])
-
-def delete_product():
-    selected = get_selected()
-    if selected:
-        product_id = get_product_id_by_article(selected[2])
-        if product_id:
-            cursor.execute("DELETE FROM product_workshop_details WHERE product_id=%s", (product_id[0],))
-            cursor.execute("DELETE FROM products WHERE id=%s", (product_id[0],))
-            db.commit()
-            load_data()
+def delete():
+    if (s := selected()) and (pid := fetch("SELECT id FROM products WHERE article_number=%s", (s[2],), one=True)):
+        cur.execute("DELETE FROM products WHERE id=%s", (pid[0],))
+        db.commit()
+        load_data()
 
 btn_frame = ttk.Frame(root)
 btn_frame.pack(pady=10)
-ttk.Button(btn_frame, text="Добавить", command=open_add).pack(side=tk.LEFT, padx=5)
-ttk.Button(btn_frame, text="Редактировать", command=open_edit).pack(side=tk.LEFT, padx=5)
-ttk.Button(btn_frame, text="Удалить", command=delete_product).pack(side=tk.LEFT, padx=5)
+ttk.Button(btn_frame, text="Добавить", command=lambda: form_window('add')).pack(side=tk.LEFT, padx=5)
+ttk.Button(btn_frame, text="Редактировать", command=lambda: form_window('edit', fetch(
+    "SELECT id FROM products WHERE article_number=%s", (selected()[2],), one=True)[0]) if selected() else None).pack(
+    side=tk.LEFT, padx=5)
+ttk.Button(btn_frame, text="Удалить", command=delete).pack(side=tk.LEFT, padx=5)
 
 load_data()
-
 root.mainloop()
-
-cursor.close()
+cur.close()
 db.close()
