@@ -27,12 +27,12 @@ def get_list(query):
     return [row[0] for row in cursor.fetchall()]
 
 def get_id_by_name(table, name_field, name_value):
-    cursor.execute(f"SELECT `id` FROM `{table}` WHERE `{name_field}`=%s", (name_value,))
+    cursor.execute(f"SELECT id FROM {table} WHERE {name_field}=%s", (name_value,))
     res = cursor.fetchone()
     return res[0] if res else None
 
 def get_product_id_by_article(article):
-    cursor.execute("SELECT `id` FROM `products` WHERE `article_number`=%s", (article,))
+    cursor.execute("SELECT id FROM products WHERE article_number=%s", (article,))
     return cursor.fetchone()
 
 def load_data():
@@ -65,22 +65,23 @@ def get_selected():
     return tree.item(selected)['values']
 
 def get_workshop_id():
-    cursor.execute("SELECT `id` FROM `product_workshops` LIMIT 1")
+    cursor.execute("SELECT id FROM product_workshops LIMIT 1")
     return cursor.fetchone()[0]
 
 def create_form_window(mode='add', product_id=None):
     form = tk.Toplevel(root)
     form.title("Добавить продукт" if mode == 'add' else "Редактировать продукт")
     form.geometry("400x300")
+    form.grab_set()
 
     fields = [
         {'label': 'Артикул', 'name': 'article', 'type': 'entry'},
         {'label': 'Тип продукта', 'name': 'product_type', 'type': 'combobox',
-         'query': "SELECT `product_type` FROM `product_types`"},
+         'query': "SELECT product_type FROM product_types"},
         {'label': 'Наименование', 'name': 'name', 'type': 'entry'},
         {'label': 'Минимальная стоимость', 'name': 'price', 'type': 'entry'},
         {'label': 'Основной материал', 'name': 'material', 'type': 'combobox',
-         'query': "SELECT `material_type` FROM `materials`"},
+         'query': "SELECT material_type FROM materials"},
     ]
 
     vars = {}
@@ -98,7 +99,7 @@ def create_form_window(mode='add', product_id=None):
 
     def load_product_data():
         cursor.execute(
-            "SELECT `article_number`, `product_name`, `min_partner_price`, `material_id`, `product_type_id` FROM `products` WHERE `id`=%s",
+            "SELECT article_number, product_name, min_partner_price, material_id, product_type_id FROM products WHERE id=%s",
             (product_id,))
         prod = cursor.fetchone()
         if not prod:
@@ -109,9 +110,9 @@ def create_form_window(mode='add', product_id=None):
         vars['article'].insert(0, article)
         vars['name'].insert(0, name)
         vars['price'].insert(0, str(price))
-        cursor.execute("SELECT `product_type` FROM `product_types` WHERE `id`=%s", (type_id,))
+        cursor.execute("SELECT product_type FROM product_types WHERE id=%s", (type_id,))
         vars['product_type'].set(cursor.fetchone()[0])
-        cursor.execute("SELECT `material_type` FROM `materials` WHERE `id`=%s", (material_id,))
+        cursor.execute("SELECT material_type FROM materials WHERE id=%s", (material_id,))
         vars['material'].set(cursor.fetchone()[0])
 
     def save_data():
@@ -121,6 +122,7 @@ def create_form_window(mode='add', product_id=None):
             data[field['name']] = val
         if not all(data.values()):
             messagebox.showwarning("Внимание", "Заполните все поля")
+            form.lift()
             return
         try:
             price = float(data['price'])
@@ -133,22 +135,22 @@ def create_form_window(mode='add', product_id=None):
 
         if mode == 'add':
             cursor.execute(
-                "INSERT INTO `products` (`article_number`, `product_name`, `min_partner_price`, `material_id`, `product_type_id`) VALUES (%s,%s,%s,%s,%s)",
+                "INSERT INTO products (article_number, product_name, min_partner_price, material_id, product_type_id) VALUES (%s,%s,%s,%s,%s)",
                 (data['article'], data['name'], price, material_id, type_id)
             )
             db.commit()
             cursor.execute("SELECT LAST_INSERT_ID()")
             new_id = cursor.fetchone()[0]
             cursor.execute(
-                "INSERT INTO `product_workshop_details` (`product_id`, `workshop_id`, `production_time`) VALUES (%s, %s, %s)",
+                "INSERT INTO product_workshop_details (product_id, workshop_id, production_time) VALUES (%s, %s, %s)",
                 (new_id, get_workshop_id(), 0)
             )
             db.commit()
         else:
             cursor.execute(
-                "UPDATE `products` SET `product_name`=%s, `min_partner_price`=%s, `material_id`=%s, `product_type_id`=%s WHERE `id`=%s",
+                "UPDATE products SET product_name=%s, min_partner_price=%s, material_id=%s, product_type_id=%s WHERE id=%s",
                 (data['name'], price, material_id, type_id, product_id))
-            cursor.execute("UPDATE `product_workshop_details` SET `production_time`=%s WHERE `product_id`=%s",
+            cursor.execute("UPDATE product_workshop_details SET production_time=%s WHERE product_id=%s",
                            (0, product_id))
             db.commit()
 
@@ -176,8 +178,8 @@ def delete_product():
     if selected:
         product_id = get_product_id_by_article(selected[2])
         if product_id:
-            cursor.execute("DELETE FROM `product_workshop_details` WHERE `product_id`=%s", (product_id[0],))
-            cursor.execute("DELETE FROM `products` WHERE `id`=%s", (product_id[0],))
+            cursor.execute("DELETE FROM product_workshop_details WHERE product_id=%s", (product_id[0],))
+            cursor.execute("DELETE FROM products WHERE id=%s", (product_id[0],))
             db.commit()
             load_data()
 
