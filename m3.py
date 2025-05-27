@@ -123,9 +123,14 @@ def form_window(mode, current_pid=None):
 
 def delete():
     if (s := selected()) and (pid := fetch("SELECT id FROM products WHERE article_number=%s", (s[2],), one=True)):
-        cur.execute("DELETE FROM products WHERE id=%s", (pid[0],))
-        db.commit()
-        load_data()
+        try:
+            cur.execute("DELETE FROM product_workshop_details WHERE product_id=%s", (pid[0],))
+            cur.execute("DELETE FROM products WHERE id=%s", (pid[0],))
+            db.commit()
+            load_data()
+        except Exception as e:
+            db.rollback()
+            messagebox.showerror("Ошибка", f"Не удалось удалить запись: {str(e)}")
 
 btn_frame = ttk.Frame(root)
 btn_frame.pack(pady=10)
