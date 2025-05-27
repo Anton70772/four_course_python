@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import mysql.connector as mysql
-import tkinter.font
+import tkinter.font as tkfont
 
 db = mysql.connect(host="localhost", user="root", password="234565", database="exam")
 cur = db.cursor()
@@ -9,7 +9,7 @@ cur = db.cursor()
 root = tk.Tk()
 root.title("Данные продуктов")
 root.geometry("1000x500")
-tk.font.nametofont("TkDefaultFont").configure(family="Candara", size=10)
+tkfont.nametofont("TkDefaultFont").configure(family="Candara", size=10)
 
 cols = ("Тип", "Наименование продукта", "Артикул", "Минимальная стоимость", "Основной материал", "Время изготовления")
 tree = ttk.Treeview(root, columns=cols, show='headings')
@@ -28,11 +28,19 @@ def get_id(table, field, value):
 
 def load_data():
     tree.delete(*tree.get_children())
-    query = """SELECT pt.product_type, p.product_name, p.article_number, p.min_partner_price,
-               m.material_type, pwd.production_time FROM products p
-               JOIN product_types pt ON p.product_type_id = pt.id
-               JOIN materials m ON p.material_id = m.id
-               JOIN product_workshop_details pwd ON p.id = pwd.product_id"""
+    query = """
+    SELECT 
+        product_types.product_type,
+        products.product_name,
+        products.article_number,
+        products.min_partner_price,
+        materials.material_type,
+        product_workshop_details.production_time 
+    FROM products
+    JOIN product_types ON products.product_type_id = product_types.id
+    JOIN materials ON products.material_id = materials.id
+    JOIN product_workshop_details ON products.id = product_workshop_details.product_id
+    """
     for row in fetch(query):
         tree.insert('', tk.END, values=row)
 
