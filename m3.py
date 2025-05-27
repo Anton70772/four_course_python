@@ -80,8 +80,7 @@ def create_form_window(mode='add', product_id=None):
          'query': "SELECT product_type FROM product_types"},
         {'label': 'Наименование', 'name': 'name', 'type': 'entry'},
         {'label': 'Минимальная стоимость', 'name': 'price', 'type': 'entry'},
-        {'label': 'Основной материал', 'name': 'material', 'type': 'combobox',
-         'query': "SELECT material_type FROM materials"},
+        {'label': 'Основной материал', 'name': 'material', 'type': 'entry'},
     ]
 
     vars = {}
@@ -107,13 +106,20 @@ def create_form_window(mode='add', product_id=None):
             form.destroy()
             return
         article, name, price, material_id, type_id = prod
+        vars['article'].delete(0, tk.END)
         vars['article'].insert(0, article)
+        vars['name'].delete(0, tk.END)
         vars['name'].insert(0, name)
+        vars['price'].delete(0, tk.END)
         vars['price'].insert(0, str(price))
+
         cursor.execute("SELECT product_type FROM product_types WHERE id=%s", (type_id,))
         vars['product_type'].set(cursor.fetchone()[0])
+
         cursor.execute("SELECT material_type FROM materials WHERE id=%s", (material_id,))
-        vars['material'].set(cursor.fetchone()[0])
+        material_name = cursor.fetchone()[0]
+        vars['material'].delete(0, tk.END)
+        vars['material'].insert(0, material_name)
 
     def save_data():
         data = {}
@@ -131,7 +137,16 @@ def create_form_window(mode='add', product_id=None):
             return
 
         type_id = get_id_by_name('product_types', 'product_type', data['product_type'])
-        material_id = get_id_by_name('materials', 'material_type', data['material'])
+
+        material_name = data['material'].strip()
+        cursor.execute("SELECT id FROM materials WHERE material_type = %s", (material_name,))
+        existing = cursor.fetchone()
+        if existing:
+            material_id = existing[0]
+        else:
+            cursor.execute("INSERT INTO materials (material_type) VALUES (%s)", (material_name,))
+            db.commit()
+            material_id = cursor.lastrowid
 
         if mode == 'add':
             cursor.execute(
