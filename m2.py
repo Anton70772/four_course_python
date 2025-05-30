@@ -1,190 +1,233 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-import mysql.connector
+import mysql.connector as mysql
 import tkinter.font as tkfont
 
-db = mysql.connector.connect(host="localhost", user="root", password="234565", database="exam")
-cursor = db.cursor()
+db = mysql.connect(host="localhost", user="root", password="234565", database="variant5")
+cur = db.cursor()
 
 root = tk.Tk()
-root.title("Данные продуктов")
+root.title("Данные материалов")
 root.geometry("1000x500")
+# root.iconbitmap('icon.ico')
 
-default_font = tkfont.nametofont("TkDefaultFont")
-default_font.configure(family="Candara", size=10)
+style = ttk.Style()
+style.configure("Treeview.Heading", font=('Candara', 10, 'bold'))
+style.configure("TButton", font=('Candara', 10), background="#355CBD", foreground="white")
 
-columns = ("Тип", "Наименование продукта", "Артикул", "Минимальная стоимость", "Основной материал", "Время изготовления")
+notebook = ttk.Notebook(root)
+notebook.pack(fill=tk.BOTH, expand=True)
 
-tree = ttk.Treeview(root, columns=columns, show='headings')
-for col in columns:
-    tree.heading(col, text=col)
-    tree.column(col, width=150)
+main_tab = ttk.Frame(notebook)
+notebook.add(main_tab, text="Главная")
+
+cols = ("id", "Тип", "Наименование материала", "Минимальное кол-во", "Кол-во на складе", "Цена", "Требуемое кол-во")
+tree = ttk.Treeview(main_tab, columns=cols, show='headings')
+tree.column("id", width=0, stretch=tk.NO)
+
+for c in cols[1:]:
+    tree.heading(c, text=c)
+    tree.column(c, width=150)
 tree.pack(fill=tk.BOTH, expand=True)
 
-def get_list(query):
-    cursor.execute(query)
-    return [row[0] for row in cursor.fetchall()]
+def fetch(q, params=(), one=False):
+    cur.execute(q, params)
+    return (cur.fetchone() if one else cur.fetchall())
 
-def get_id_by_name(table, name_field, name_value):
-    cursor.execute(f"SELECT `id` FROM `{table}` WHERE `{name_field}`=%s", (name_value,))
-    res = cursor.fetchone()
+
+def get_id(table, field, value):
+    res = fetch(f"SELECT id FROM {table} WHERE {field}=%s", (value,), one=True)
     return res[0] if res else None
 
-def get_product_id_by_article(article):
-    cursor.execute("SELECT `id` FROM `products` WHERE `article_number`=%s", (article,))
-    return cursor.fetchone()
 
 def load_data():
+    tree.delete(*tree.get_children())
     query = """
-        SELECT 
-            product_types.product_type,
-            products.product_name,
-            products.article_number,
-            products.min_partner_price,
-            materials.material_type,
-            product_workshop_details.production_time
-        FROM products
-        JOIN product_types ON products.product_type_id = product_types.id
-        JOIN materials ON products.material_id = materials.id
-        JOIN product_workshop_details ON products.id = product_workshop_details.product_id
-        JOIN product_workshops ON product_workshop_details.workshop_id = product_workshops.id
+    SELECT 
+        m.id,
+        mt.material_type, 
+        m.name, 
+        m.min_count, 
+        m.count_storage, 
+        CONCAT(m.unit_price, ' ', m.unit_metrik, ' | ', m.count_package) as price_info
+    FROM materials m
+    JOIN material_type mt ON m.material_type_id = mt.id
     """
-    cursor.execute(query)
-    rows = cursor.fetchall()
-    for item in tree.get_children():
-        tree.delete(item)
-    for row in rows:
-        tree.insert('', tk.END, values=row)
-
-def get_selected():
-    selected = tree.focus()
-    if not selected:
-        messagebox.showwarning("Внимание", "Выберите запись")
-        return None
-    return tree.item(selected)['values']
-
-def get_workshop_id():
-    cursor.execute("SELECT `id` FROM `product_workshops` LIMIT 1")
-    return cursor.fetchone()[0]
-
-class ProductForm(tk.Toplevel):
-    def __init__(self, mode='add', product_id=None):
-        super().__init__(root)
-        self.mode = mode
-        self.product_id = product_id
-        self.title("Добавить продукт" if mode=='add' else "Редактировать продукт")
-        self.geometry("400x300")
-        self.fields = [
-            {'label': 'Артикул', 'name': 'article', 'type': 'entry'},
-            {'label': 'Тип продукта', 'name': 'product_type', 'type': 'combobox', 'query': "SELECT `product_type` FROM `product_types`"},
-            {'label': 'Наименование', 'name': 'name', 'type': 'entry'},
-            {'label': 'Минимальная стоимость', 'name': 'price', 'type': 'entry'},
-            {'label': 'Основной материал', 'name': 'material', 'type': 'combobox', 'query': "SELECT `material_type` FROM `materials`"},
-        ]
-        self.vars = {}
-        self.create_widgets()
-        if mode=='edit' and product_id:
-            self.load_product()
-
-    def create_widgets(self):
-        for i, field in enumerate(self.fields):
-            ttk.Label(self, text=field['label']).grid(row=i, column=0, sticky=tk.W, pady=5, padx=5)
-            if field['type'] == 'entry':
-                entry = ttk.Entry(self)
-                entry.grid(row=i, column=1, pady=5, padx=5)
-                self.vars[field['name']] = entry
-            elif field['type'] == 'combobox':
-                cb = ttk.Combobox(self, state='readonly')
-                cb['values'] = get_list(field['query'])
-                cb.grid(row=i, column=1, pady=5, padx=5)
-                self.vars[field['name']] = cb
-
-        ttk.Button(self, text="Сохранить", command=self.save).grid(row=len(self.fields), column=0, pady=10)
-        ttk.Button(self, text="Назад", command=self.destroy).grid(row=len(self.fields), column=1, pady=10)
-
-    def load_product(self):
-        cursor.execute("SELECT `article_number`, `product_name`, `min_partner_price`, `material_id`, `product_type_id` FROM `products` WHERE `id`=%s", (self.product_id,))
-        prod = cursor.fetchone()
-        if not prod:
-            messagebox.showerror("Ошибка", "Продукт не найден")
-            self.destroy()
-            return
-        article, name, price, material_id, type_id = prod
-        self.vars['article'].insert(0, article)
-        self.vars['name'].insert(0, name)
-        self.vars['price'].insert(0, str(price))
-        cursor.execute("SELECT `product_type` FROM `product_types` WHERE `id`=%s", (type_id,))
-        self.vars['product_type'].set(cursor.fetchone()[0])
-        cursor.execute("SELECT `material_type` FROM `materials` WHERE `id`=%s", (material_id,))
-        self.vars['material'].set(cursor.fetchone()[0])
-
-    def save(self):
-        data = {}
-        for field in self.fields:
-            val = self.vars[field['name']].get()
-            data[field['name']] = val
-        if not all(data.values()):
-            messagebox.showwarning("Внимание", "Заполните все поля")
-            return
+    for row in fetch(query):
         try:
-            price = float(data['price'])
+            min_val = float(row[3].replace(',', '.'))
+            storage_val = float(row[4].replace(',', '.'))
+            required = max(0, min_val - storage_val)
+            required_str = format(required, '.2f').replace('.', ',')
         except:
-            messagebox.showwarning("Внимание", "Некорректная цена")
-            return
-        type_id = get_id_by_name('product_types', 'product_type', data['product_type'])
-        material_id = get_id_by_name('materials', 'material_type', data['material'])
-        if self.mode == 'add':
-            cursor.execute(
-                "INSERT INTO `products` (`article_number`, `product_name`, `min_partner_price`, `material_id`, `product_type_id`) VALUES (%s,%s,%s,%s,%s)",
-                (data['article'], data['name'], price, material_id, type_id)
-            )
-            db.commit()
-            cursor.execute("SELECT LAST_INSERT_ID()")
-            new_id = cursor.fetchone()[0]
-            cursor.execute(
-                "INSERT INTO `product_workshop_details` (`product_id`, `workshop_id`, `production_time`) VALUES (%s, %s, %s)",
-                (new_id, get_workshop_id(), 0)
-            )
-            db.commit()
+            required_str = "0,00"
+
+        tree.insert('', tk.END, values=(row[0], row[1], row[2], row[3], row[4], row[5], required_str))
+
+
+def selected():
+    if not (item := tree.focus()):
+        messagebox.showwarning("Внимание", "Выберите запись")
+        return
+    return tree.item(item)['values']
+
+
+def form_tab(mode, current_mid=None):
+    form = ttk.Frame(notebook)
+    tab_title = "Добавить материал" if mode == 'add' else "Редактировать материал"
+    notebook.add(form, text=tab_title)
+    notebook.select(form)
+
+    fields = [
+        ('Тип материала', 'type', 'combo', 'str', "SELECT material_type FROM material_type"),
+        ('Наименование', 'name', 'entry', 'str'),
+        ('Цена единицы', 'price', 'entry', 'num'),
+        ('Единица измерения', 'unit', 'entry', 'str'),
+        ('Количество в упаковке', 'pack', 'entry', 'num'),
+        ('Количество на складе', 'storage', 'entry', 'num'),
+        ('Минимальное количество', 'min', 'entry', 'num')
+    ]
+
+    entries = {}
+    for r, (lbl, name, typ, dtype, *q) in enumerate(fields):
+        tk.Label(form, text=lbl).grid(row=r, column=0, sticky=tk.W, padx=5, pady=5)
+        if typ == 'combo':
+            cb = ttk.Combobox(form, state='readonly')
+            cb['values'] = [x[0] for x in fetch(q[0])]
+            cb.grid(row=r, column=1, padx=5, pady=5)
+            entries[name] = (cb, dtype)
         else:
-            cursor.execute(
-                "UPDATE `products` SET `product_name`=%s, `min_partner_price`=%s, `material_id`=%s, `product_type_id`=%s WHERE `id`=%s",
-                (data['name'], price, material_id, type_id, self.product_id))
-            cursor.execute("UPDATE `product_workshop_details` SET `production_time`=%s WHERE `product_id`=%s",
-                           (0, self.product_id))
-            db.commit()
-        load_data()
-        self.destroy()
+            e = ttk.Entry(form)
+            e.grid(row=r, column=1, padx=5, pady=5)
+            entries[name] = (e, dtype)
 
-def open_add():
-    ProductForm(mode='add')
+    if mode == 'edit':
+        p = fetch(
+            "SELECT name, unit_price, unit_metrik, count_package, count_storage, min_count, material_type_id FROM materials WHERE id=%s",
+            (current_mid,), one=True)
+        if not p:
+            messagebox.showerror("Ошибка", "Материал не найден")
+            notebook.forget(notebook.index(form))
+            return
 
-def open_edit():
-    selected = get_selected()
-    if selected:
-        product_id = get_product_id_by_article(selected[2])
-        if product_id:
-            ProductForm(mode='edit', product_id=product_id[0])
+        entries['name'][0].insert(0, p[0])
+        entries['price'][0].insert(0, p[1])
+        entries['unit'][0].insert(0, p[2])
+        entries['pack'][0].insert(0, p[3])
+        entries['storage'][0].insert(0, p[4])
+        entries['min'][0].insert(0, p[5])
+        entries['type'][0].set(fetch("SELECT material_type FROM material_type WHERE id=%s", (p[6],), one=True)[0])
 
-def delete_product():
-    selected = get_selected()
-    if selected:
-        product_id = get_product_id_by_article(selected[2])
-        if product_id:
-            cursor.execute("DELETE FROM `product_workshop_details` WHERE `product_id`=%s", (product_id[0],))
-            cursor.execute("DELETE FROM `products` WHERE `id`=%s", (product_id[0],))
+    def validate_fields():
+        errors = []
+        vals = {}
+
+        for name, (widget, dtype) in entries.items():
+            value = widget.get().strip()
+
+            if not value:
+                errors.append(f"Поле '{name}' не заполнено")
+                continue
+
+            if dtype == 'num':
+                try:
+                    value = value.replace(',', '.')
+                    value_float = float(value)
+                    if value_float < 0:
+                        errors.append(f"Поле '{name}' должно быть положительным числом")
+                    else:
+                        vals[name] = format(value_float, '.2f').replace('.', ',')
+                except ValueError:
+                    errors.append(f"Поле '{name}' должно содержать число")
+            else:
+                vals[name] = value
+
+        if errors:
+            messagebox.showerror("Ошибки в данных", "\n".join(errors))
+            return None
+
+        return vals
+
+    def save():
+        if not (vals := validate_fields()):
+            return
+
+        type_id = get_id('material_type', 'material_type', vals['type'])
+        if type_id is None:
+            messagebox.showerror("Ошибка", "Неверный тип материала")
+            return
+
+        data = (
+            vals['name'],
+            vals['price'],
+            vals['unit'],
+            vals['pack'],
+            vals['storage'],
+            vals['min'],
+            type_id
+        )
+
+        try:
+            if mode == 'add':
+                cur.execute("""
+                    INSERT INTO materials 
+                    (name, unit_price, unit_metrik, count_package, count_storage, min_count, material_type_id) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, data)
+                messagebox.showinfo("Успех", "Материал успешно добавлен")
+            else:
+                cur.execute("""
+                    UPDATE materials SET 
+                    name=%s, unit_price=%s, unit_metrik=%s, count_package=%s, count_storage=%s, min_count=%s, material_type_id=%s 
+                    WHERE id=%s
+                """, (*data, current_mid))
+                messagebox.showinfo("Успех", "Материал успешно обновлен")
+
             db.commit()
             load_data()
+            notebook.forget(notebook.index(form))
 
-btn_frame = ttk.Frame(root)
+        except Exception as e:
+            db.rollback()
+            messagebox.showerror("Ошибка", f"Ошибка при сохранении: {str(e)}")
+
+    def on_close():
+        notebook.forget(notebook.index(form))
+
+    tk.Button(form, text='Сохранить', command=save, font=('Candara', 10), bg="#355CBD", fg="white").grid(row=8,
+                                                                                                         column=0,
+                                                                                                         pady=10)
+    tk.Button(form, text='Назад', command=on_close, font=('Candara', 10), bg="#355CBD", fg="white").grid(row=8,
+                                                                                                         column=1,
+                                                                                                         pady=10)
+
+def delete():
+    if not (s := selected()):
+        return
+    material_id = s[0]
+
+    if messagebox.askyesno("Подтверждение", "Вы уверены, что хотите удалить этот материал? Это также удалит все связанные записи в продуктах."):
+        try:
+            cur.execute("DELETE FROM material_products WHERE material_id=%s", (material_id,))
+            cur.execute("DELETE FROM materials WHERE id=%s", (material_id,))
+            db.commit()
+            load_data()
+            messagebox.showinfo("Успех", "Материал и связанные данные успешно удалены")
+        except Exception as e:
+            db.rollback()
+            messagebox.showerror("Ошибка", f"Не удалось удалить запись: {str(e)}")
+
+btn_frame = ttk.Frame(main_tab)
 btn_frame.pack(pady=10)
-ttk.Button(btn_frame, text="Добавить", command=open_add).pack(side=tk.LEFT, padx=5)
-ttk.Button(btn_frame, text="Редактировать", command=open_edit).pack(side=tk.LEFT, padx=5)
-ttk.Button(btn_frame, text="Удалить", command=delete_product).pack(side=tk.LEFT, padx=5)
+tk.Button(btn_frame, text="Добавить", command=lambda: form_tab('add'),
+          font=('Candara', 10), bg="#355CBD", fg="white").pack(side=tk.LEFT, padx=5)
+tk.Button(btn_frame, text="Редактировать",
+          command=lambda: form_tab('edit', selected()[0]) if selected() else None,
+          font=('Candara', 10), bg="#355CBD", fg="white").pack(side=tk.LEFT, padx=5)
+tk.Button(btn_frame, text="Удалить", command=delete,
+          font=('Candara', 10), bg="#355CBD", fg="white").pack(side=tk.LEFT, padx=5)
 
 load_data()
-
 root.mainloop()
-
-cursor.close()
+cur.close()
 db.close()
